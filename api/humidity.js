@@ -21,6 +21,7 @@ async function getCollection() {
   return db.collection("readings");       // collection name
 }
 
+// Seed fake historic data for Toronto, one reading per past day
 async function seedFakeData(collection, days) {
   const now = new Date();
   const docs = [];
@@ -28,6 +29,7 @@ async function seedFakeData(collection, days) {
   for (let i = days; i >= 0; i--) {
     const t = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
     const humidity = 40 + Math.round(Math.random() * 30); // 40–70%
+
     docs.push({
       city: "Toronto",
       humidity,
@@ -53,14 +55,17 @@ export default async function handler(req, res) {
       const now = new Date();
       const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
+      // Read existing docs for Toronto in the requested range
       let docs = await collection
         .find({ city: "Toronto", timestamp: { $gte: since } })
         .sort({ timestamp: 1 })
         .toArray();
 
-      // If nothing yet, seed once with fake data
-      if (docs.length === 0) {
+      // If we don't have enough data points for this range,
+      // seed fake historic data once.
+      if (docs.length < days) {
         await seedFakeData(collection, days);
+
         docs = await collection
           .find({ city: "Toronto", timestamp: { $gte: since } })
           .sort({ timestamp: 1 })
