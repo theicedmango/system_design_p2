@@ -20,6 +20,22 @@ let chart; // Chart.js instance
 let lastHumidity = null;
 let lastState = { label: "", color: "#22a352" };
 
+// Save a humidity reading to MongoDB via Vercel API
+async function saveHumidityToDb(humidity) {
+  try {
+    await fetch("/api/humidity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        city: "Toronto",
+        humidity
+      })
+    });
+  } catch (err) {
+    console.error("Failed to save humidity to DB", err);
+  }
+}
+
 // State mapping 
 function getHumidityState(h) {
   if (h <= 40) {
@@ -72,16 +88,28 @@ async function fetchHumidity(lat, lon) {
   lastHumidity = humidity;
   lastState = state;
 
+  // Log Toronto readings into the DB
+  if (citySelect.value.startsWith("43.6532")) {
+    saveHumidityToDb(humidity);
+  }
+
   updateModalHeader();
 }
 
-// History for chart (fix: skip invalids to avoid 0% lows)
+// History for chart – now from MongoDB via Vercel API
 async function fetchHistory(lat, lon, rangeKey) {
-  const ranges = {
-    week:    { past: 7,  step: 6  },  // every 6 hours
-    month:   { past: 30, step: 12 },  // every 12 hours
-    quarter: { past: 90, step: 24 }   // every 24 hours
-  };
+  try {
+    const res = await fetch(`/api/humidity?range=${rangeKey}`);
+    if (!res.ok) {
+      console.error("Failed to load history from DB");
+      return { labels: [], series: [], avg: 0, high: 0, low: 0 };
+    }
+    return await res.json();
+  } catch (err) {
+    console.error("Error fetching history from DB", err);
+    return { labels: [], series: [], avg: 0, high: 0, low: 0 };
+  }
+}
   const { past, step } = ranges[rangeKey] || ranges.week;
 
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=relative_humidity_2m&past_days=${past}&timezone=auto`;
