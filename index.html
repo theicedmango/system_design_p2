@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+  <title>Bambu Lab Style Humidity Widget</title>
+</head>
+
+<body>
+  <h1 class="header">Bambu Lab Style Humidity Widget</h1>
+
+  <select id="city-select" class="city-select">
+    <option value="43.6532,-79.3832">Toronto</option>
+    <option value="40.7128,-74.0060">New York</option>
+    <option value="51.5074,-0.1278">London</option>
+    <option value="35.6895,139.6917">Tokyo</option>
+    <option value="48.8566,2.3522">Paris</option>
+    <option value="36.1699,-115.1398">Las Vegas</option>
+  </select>
+
+  <div class="box">
+    <div class="widget">
+      <div class="widget-background"></div>
+      <div class="outlines"></div>
+      <div class="vertical-line"></div>
+
+      <div class="top-bar">
+        <div class="rectangle"></div>
+        <div class="text-wrapper">Ambient Humidity</div>
+      </div>
+
+      <div class="humid-percentage">--%</div>
+      <div class="humid-status">Loading...</div>
+
+      <img class="icon1" src="img/icon_empty.svg" />
+      <img class="icon2" src="img/icon_empty.svg" />
+      <img class="icon3" src="img/icon_empty.svg" />
+
+      <p class="description">Loading...</p>
+
+
+      <button id="view-more" class="view-more">View More</button>
+    </div>
+  </div>
+
+
+  <div id="modal-overlay" class="modal-overlay" aria-hidden="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Ambient Humidity Details</h2>
+        <div class="modal-actions">
+          <button id="modal-refresh" class="icon-btn" title="Refresh">
+            <span class="material-symbols-outlined">refresh</span>
+          </button>
+          <button id="modal-close" class="icon-btn close" title="Close">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      </div>
+
+
+      <div class="modal-current">
+        <div class="current-label">Current Humidity:</div>
+        <div class="current-row">
+          <span id="modal-current" class="current-value">--%</span>
+          <span id="modal-state" class="current-state">(—)</span>
+        </div>
+        <div id="modal-updated" class="last-updated">Last Updated: --:--</div>
+      </div>
+
+
+      <hr class="modal-sep" />
+
+      <div class="modal-section-header">
+        <span>Humidity History</span>
+        <select id="range-select" class="range-select">
+          <option value="week">Weekly</option>
+          <option value="month">Monthly</option>
+          <option value="quarter">3 Months</option>
+        </select>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="humidityChart" height="160"></canvas>
+      </div>
+
+      <div class="stats-row">
+        <div>Avg: <span id="stat-avg" class="stat stat-avg">--%</span></div>
+        <div>High: <span id="stat-high" class="stat stat-high">--%</span></div>
+        <div>Low: <span id="stat-low" class="stat stat-low">--%</span></div>
+      </div>
+
+
+      <hr class="modal-sep" />
+
+      <div class="modal-info">
+        <p class="info-body">
+          This chart shows recent humidity levels near your printer. Use the filter to switch between weekly, monthly, or quarterly trends.
+        </p>
+        <p class="info-tip">
+          <strong>Tip:</strong> Stable humidity helps maintain filament quality and prevents print issues over time. <>
+          <a class="wiki-link" href="https://wiki.bambulab.com/en/filament-acc/filament/dry-filament" target="_blank" rel="noopener">Learn more on the Bambu&nbsp;Wiki</a>
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <span id="modal-footer-updated">Last updated: --:--</span>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
