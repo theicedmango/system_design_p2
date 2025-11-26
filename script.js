@@ -2,7 +2,11 @@
 const humidityEl = document.querySelector(".humid-percentage");
 const statusEl = document.querySelector(".humid-status");
 const descEl = document.querySelector(".description");
-const iconEls = [document.querySelector(".icon1"), document.querySelector(".icon2"), document.querySelector(".icon3")];
+const iconEls = [
+  document.querySelector(".icon1"),
+  document.querySelector(".icon2"),
+  document.querySelector(".icon3"),
+];
 const citySelect = document.getElementById("city-select");
 
 // Modal elements
@@ -28,75 +32,97 @@ async function saveHumidityToDb(humidity) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         city: "Toronto",
-        humidity
-      })
+        humidity,
+      }),
     });
   } catch (err) {
     console.error("Failed to save humidity to DB", err);
   }
 }
 
-// State mapping 
+// State mapping
 function getHumidityState(h) {
   if (h <= 40) {
     return {
       label: "Good",
       color: "#22a352",
-      desc: "Humidity is in an optimal range. Filament stays stable and printing performance remains reliable. No extra precautions are needed.",
-      icons: ["img/icon_half.svg", "img/icon_empty.svg", "img/icon_empty.svg"]
+      desc: "Humidity is in an optimal range for most filaments. Printing conditions are stable and moisture absorption is minimal.",
+      icons: ["img/icon_full.svg", "img/icon_full.svg", "img/icon_empty.svg"],
+    };
+  } else if (h <= 50) {
+    return {
+      label: "OK",
+      color: "#4caf50",
+      desc: "Humidity is slightly elevated but still acceptable. Most filaments will print fine, though sensitive materials benefit from dry storage.",
+      icons: ["img/icon_full.svg", "img/icon_half.svg", "img/icon_empty.svg"],
     };
   } else if (h <= 60) {
     return {
       label: "Fair",
       color: "#d4a017",
       desc: "Humidity is moderately elevated. Filament may slowly absorb moisture over time. Consider using sealed storage if filament is left out.",
-      icons: ["img/icon_full.svg", "img/icon_half.svg", "img/icon_empty.svg"]
+      icons: ["img/icon_full.svg", "img/icon_half.svg", "img/icon_empty.svg"],
     };
   } else {
     return {
       label: "Bad",
       color: "#c62828",
       desc: "Humidity is high. Filament can absorb moisture quickly, which may affect print quality. Dry storage is recommended.",
-      icons: ["img/icon_full.svg", "img/icon_full.svg", "img/icon_full.svg"]
+      icons: ["img/icon_full.svg", "img/icon_full.svg", "img/icon_full.svg"],
     };
   }
 }
 
-// Apply Good/Fair/Bad color to any element based on a numeric humidity value
-function applyStateColor(el, value) {
-  const s = getHumidityState(value);
-  el.style.color = s.color;
+// Format time helper
+function formatTime(date = new Date()) {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// Current humidity 
+// Fetch current humidity from Open-Meteo
 async function fetchHumidity(lat, lon) {
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=relative_humidity_2m&timezone=auto`;
-  const res = await fetch(url);
-  const data = await res.json();
-  const humidity = data?.current?.relative_humidity_2m;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=relative_humidity_2m&timezone=auto`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const humidity = data?.current?.relative_humidity_2m;
 
-  // Update widget UI
-  humidityEl.textContent = `${humidity}%`;
-  const state = getHumidityState(humidity);
-  statusEl.textContent = state.label;
-  statusEl.style.color = state.color;
-  humidityEl.style.color = state.color;
-  descEl.textContent = state.desc;
-  iconEls.forEach((el, i) => (el.src = state.icons[i]));
+    if (!Number.isFinite(humidity)) {
+      throw new Error("Invalid humidity value");
+    }
 
-  // Save for modal
-  lastHumidity = humidity;
-  lastState = state;
+    // Update widget UI
+    humidityEl.textContent = `${humidity}%`;
+    const state = getHumidityState(humidity);
+    statusEl.textContent = state.label;
+    statusEl.style.color = state.color;
+    humidityEl.style.color = state.color;
+    descEl.textContent = state.desc;
+    iconEls.forEach((el, i) => {
+      el.src = state.icons[i];
+      el.alt = state.label;
+    });
 
-  // Log Toronto readings into the DB
-  if (citySelect.value.startsWith("43.6532")) {
-    saveHumidityToDb(humidity);
+    // Save for modal
+    lastHumidity = humidity;
+    lastState = state;
+
+    // Log Toronto readings into the DB (Toronto only)
+    if (citySelect.value.startsWith("43.6532")) {
+      saveHumidityToDb(humidity);
+    }
+
+    updateModalHeader();
+  } catch (err) {
+    console.error("Failed to fetch humidity", err);
+    humidityEl.textContent = "--%";
+    statusEl.textContent = "Error";
+    statusEl.style.color = "#c62828";
+    humidityEl.style.color = "#c62828";
+    descEl.textContent = "Unable to load humidity data. Please check your connection.";
   }
-
-  updateModalHeader();
 }
 
-// History for chart – now from MongoDB via Vercel API
+// History for chart – now backed by MongoDB via Vercel API
 async function fetchHistory(lat, lon, rangeKey) {
   try {
     const res = await fetch(`/api/humidity?range=${rangeKey}`);
@@ -110,154 +136,160 @@ async function fetchHistory(lat, lon, rangeKey) {
     return { labels: [], series: [], avg: 0, high: 0, low: 0 };
   }
 }
-  const { past, step } = ranges[rangeKey] || ranges.week;
-
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=relative_humidity_2m&past_days=${past}&timezone=auto`;
-  const res = await fetch(url);
-  const data = await res.json();
-
-  const times  = data?.hourly?.time || [];
-  const values = data?.hourly?.relative_humidity_2m || [];
-
-  const labels = [];
-  const series = [];
-
-  // only push valid numeric points (prevents false 0 lows and left clipping)
-  for (let i = 0; i < times.length; i += step) {
-    const v = values[i];
-    if (Number.isFinite(v)) {
-      labels.push(times[i]);
-      series.push(v);
-    }
-  }
-
-  const filtered = series.filter(Number.isFinite);
-  const avg  = Math.round(filtered.reduce((a, b) => a + b, 0) / (filtered.length || 1));
-  const high = filtered.length ? Math.max(...filtered) : 0;
-  const low  = filtered.length ? Math.min(...filtered) : 0;
-
-  return { labels, series: filtered, avg, high, low };
-}
 
 // Chart rendering
 function renderChart(labels, series) {
-  const ctx = document.getElementById("humidityChart").getContext("2d");
+  const canvas = document.getElementById("humidityChart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+
   const gradient = ctx.createLinearGradient(0, 0, 0, 200);
   gradient.addColorStop(0, "rgba(66, 163, 255, 0.25)");
   gradient.addColorStop(1, "rgba(66, 163, 255, 0.03)");
 
   if (chart) chart.destroy();
+
   chart = new Chart(ctx, {
     type: "line",
     data: {
       labels,
-      datasets: [{
-        data: series,
-        spanGaps: true,
-        fill: true,
-        backgroundColor: gradient,
-        borderColor: "#7fb8ff",
-        borderWidth: 2.5,
-        pointRadius: 0,
-        tension: 0.35
-      }]
+      datasets: [
+        {
+          label: "Humidity (%)",
+          data: series,
+          borderColor: "rgba(66, 163, 255, 1)",
+          backgroundColor: gradient,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.35,
+        },
+      ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      layout: { padding: { left: 4, right: 6 } },
+      layout: {
+        padding: { left: 4, right: 6, top: 8, bottom: 4 },
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
           backgroundColor: "#2f2f33",
           titleColor: "#e5e5e7",
           bodyColor: "#e5e5e7",
-          borderColor: "#4c4c55",
-          borderWidth: 1
-        }
+          padding: 8,
+          displayColors: false,
+          callbacks: {
+            label: (ctx) => `Humidity: ${ctx.parsed.y}%`,
+          },
+        },
       },
       scales: {
         x: {
-          ticks: { display: false, color: "#9a9aa0" },
-          grid: { color: "rgba(255,255,255,0.06)" }
+          ticks: {
+            maxTicksLimit: 6,
+            color: "#9f9fa4",
+          },
+          grid: {
+            display: false,
+          },
         },
         y: {
-          suggestedMin: 0,
+          beginAtZero: true,
           suggestedMax: 100,
-          ticks: { color: "#9a9aa0", stepSize: 10, callback: v => v + "%" },
-          grid: { color: "rgba(255,255,255,0.06)" }
-        }
-      }
-    }
+          ticks: {
+            stepSize: 20,
+            color: "#9f9fa4",
+          },
+          grid: {
+            color: "rgba(255,255,255,0.05)",
+          },
+        },
+      },
+    },
   });
 }
 
-// Modal helpers 
-function openModal() {
-  modalOverlay.classList.add("open");
-  setTimeout(loadModalContent, 50);
-}
-function closeModal() { modalOverlay.classList.remove("open"); }
-
+// Modal header + stats update
 function updateModalHeader() {
   if (lastHumidity == null) return;
-  modalCurrentEl.textContent = `${lastHumidity}%`;
-  modalStateEl.textContent = `(${lastState.label})`;
-  modalCurrentEl.style.color = lastState.color;
-  modalStateEl.style.color = lastState.color;
 
-  const t = new Date();
-  const time = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  modalUpdatedEl.textContent = `Last Updated: ${time}`;
-  modalFooterUpdatedEl.textContent = `Last updated: ${time}`;
+  modalCurrentEl.textContent = `${lastHumidity}%`;
+  modalStateEl.textContent = lastState.label;
+  modalStateEl.style.color = lastState.color;
+  modalCurrentEl.style.color = lastState.color;
+
+  const nowStr = formatTime();
+  modalUpdatedEl.textContent = `Last updated: ${nowStr}`;
+  modalFooterUpdatedEl.textContent = `Last updated: ${nowStr}`;
 }
 
+// Load modal content (chart + stats)
 async function loadModalContent() {
-  updateModalHeader();
+  modalRefresh.classList.add("spinning");
+
   const [lat, lon] = citySelect.value.split(",");
   const rangeKey = rangeSelect.value;
+
   const { labels, series, avg, high, low } = await fetchHistory(lat, lon, rangeKey);
 
   renderChart(labels, series);
 
-  // Update stats + color-code like main value
-  const avgEl = document.getElementById("stat-avg");
-  const highEl = document.getElementById("stat-high");
-  const lowEl = document.getElementById("stat-low");
+  const statsAvg = document.getElementById("stat-avg");
+  const statsHigh = document.getElementById("stat-high");
+  const statsLow = document.getElementById("stat-low");
 
-  avgEl.textContent = `${avg}%`;
-  highEl.textContent = `${high}%`;
-  lowEl.textContent = `${low}%`;
+  if (statsAvg) statsAvg.textContent = `${avg}%`;
+  if (statsHigh) statsHigh.textContent = `${high}%`;
+  if (statsLow) statsLow.textContent = `${low}%`;
 
-  applyStateColor(avgEl, avg);
-  applyStateColor(highEl, high);
-  applyStateColor(lowEl, low);
+  updateModalHeader();
+  modalRefresh.classList.remove("spinning");
 }
 
-// Events 
+// Modal controls
+function openModal() {
+  modalOverlay.classList.add("open");
+  loadModalContent();
+}
+
+function closeModal() {
+  modalOverlay.classList.remove("open");
+}
+
+// Event listeners
+viewMoreBtn.addEventListener("click", openModal);
+modalClose.addEventListener("click", closeModal);
+modalRefresh.addEventListener("click", loadModalContent);
+rangeSelect.addEventListener("change", loadModalContent);
+
+// Close when clicking overlay background
+modalOverlay.addEventListener("click", (e) => {
+  if (e.target === modalOverlay) {
+    closeModal();
+  }
+});
+
+// City select change – refresh main widget when switching city
 citySelect.addEventListener("change", () => {
   const [lat, lon] = citySelect.value.split(",");
   fetchHumidity(lat, lon);
-  if (modalOverlay.classList.contains("open")) loadModalContent();
+  if (modalOverlay.classList.contains("open")) {
+    loadModalContent();
+  }
 });
 
-viewMoreBtn.addEventListener("click", openModal);
-document.getElementById("modal-close").addEventListener("click", closeModal);
-document.getElementById("modal-refresh").addEventListener("click", loadModalContent);
-rangeSelect.addEventListener("change", loadModalContent);
-
-// Close when clicking overlay
-modalOverlay.addEventListener("click", (e) => {
-  if (e.target === modalOverlay) closeModal();
-});
-
-// Initial load 
+// Initial load
 (function init() {
   const [lat, lon] = citySelect.value.split(",");
   fetchHumidity(lat, lon);
+
+  // Refresh every 10 minutes
   setInterval(() => {
     const [clat, clon] = citySelect.value.split(",");
     fetchHumidity(clat, clon);
-    if (modalOverlay.classList.contains("open")) loadModalContent();
+    if (modalOverlay.classList.contains("open")) {
+      loadModalContent();
+    }
   }, 10 * 60 * 1000);
 })();
