@@ -16,7 +16,6 @@ const modalClose = document.getElementById("modal-close");
 const modalRefresh = document.getElementById("modal-refresh");
 const modalCurrentEl = document.getElementById("modal-current");
 const modalStateEl = document.getElementById("modal-state");
-const modalUpdatedEl = document.getElementById("modal-updated");
 const modalFooterUpdatedEl = document.getElementById("modal-footer-updated");
 const rangeSelect = document.getElementById("range-select");
 
@@ -220,7 +219,6 @@ function updateModalHeader() {
   modalCurrentEl.style.color = lastState.color;
 
   const nowStr = formatTime();
-  modalUpdatedEl.textContent = `Last updated: ${nowStr}`;
   modalFooterUpdatedEl.textContent = `Last updated: ${nowStr}`;
 }
 
