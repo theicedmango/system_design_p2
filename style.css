@@ -10,14 +10,13 @@ body {
   min-height: 100vh;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Helvetica Neue", Arial, sans-serif;
-  overflow: hidden;
 }
 
 /* Fixed-size "canvas" that matches your Figma / PNG frame */
 .studio-shell {
   position: relative;
-  width: 1707px;   /* set these to your actual PNG size */
-  height: 961px;   /* e.g. 1440×810, 1920×1080, etc. */
+  width: 1440px;   /* set these to your actual PNG size */
+  height: 810px;   /* e.g. 1440×810, 1920×1080, etc. */
   overflow: hidden;
 }
 
@@ -33,9 +32,9 @@ body {
 .humidity-widget-host {
   position: absolute;
   /* tweak these two until it sits exactly in the lower-right panel */
-  right: 13px;
-  bottom: 135px;
-  transform: scale(0.889);          /* <— shrink here */
+  right: 11px;
+  bottom: 113px;
+  transform: scale(0.75);          /* <— shrink here */
   transform-origin: bottom right;
 }
 
