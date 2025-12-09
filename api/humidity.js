@@ -1,8 +1,10 @@
+// pages/api/humidity.js
+
 import { MongoClient } from "mongodb";
 
 const uri = process.env.MONGODB_URI;
 
-// Reuse a single MongoClient across calls
+// Reuse a single Mongo client across requests
 let client;
 let clientPromise;
 
@@ -17,108 +19,64 @@ async function getCollection() {
   }
 
   const conn = await clientPromise;
-  const db = conn.db("humidity_app");     // database name
-  return db.collection("readings");       // collection name
+  const db = conn.db("humidity_app");        // database name
+  return db.collection("readings");          // collection name
 }
 
-// Seed fake historic data for Toronto, one reading per past day
-async function seedFakeData(collection, days) {
-  const now = new Date();
-  const docs = [];
-
-  for (let i = days; i >= 0; i--) {
-    const t = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    const humidity = 40 + Math.round(Math.random() * 30); // 40–70%
-
-    docs.push({
-      city: "Toronto",
-      humidity,
-      source: "seed",
-      timestamp: t
-    });
+// Helper to compute stats from a numeric array
+function computeStats(series) {
+  if (!series.length) {
+    return { avg: 0, high: 0, low: 0 };
   }
 
-  if (docs.length > 0) {
-    await collection.insertMany(docs);
-  }
+  const sum = series.reduce((a, b) => a + b, 0);
+  const avg = Math.round(sum / series.length);
+  const high = Math.round(Math.max(...series));
+  const low = Math.round(Math.min(...series));
+
+  return { avg, high, low };
 }
 
 export default async function handler(req, res) {
   try {
-    const { method, query } = req;
-    const range = query.range || "week";
-    const mode = query.mode || null;
-
     const collection = await getCollection();
+    const { method } = req;
 
-    // 1) Latest reading for the widget UI
-    if (method === "GET" && mode === "latest") {
-      const latest = await collection
-        .find({})
-        .sort({ timestamp: -1 })
-        .limit(1)
-        .toArray();
-
-      if (!latest.length) {
-        return res.status(404).json({ error: "No readings found" });
-      }
-
-      const doc = latest[0];
-
-      return res.status(200).json({
-        humidity: doc.humidity,
-        city: doc.city,
-        source: doc.source || "unknown",
-        timestamp: doc.timestamp
-      });
-    }
-
-    // 2) History for the modal chart (week / month / quarter)
     if (method === "GET") {
+      // Expected query: ?city=Sensor&range=week|month|quarter
+      const { city = "Sensor", range = "week" } = req.query;
+
       const ranges = { week: 7, month: 30, quarter: 90 };
       const days = ranges[range] || 7;
 
       const now = new Date();
       const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-      // Read existing docs for Toronto in the requested range
-      let docs = await collection
-        .find({ city: "Toronto", timestamp: { $gte: since } })
+      const filter = {
+        city,
+        timestamp: { $gte: since },
+      };
+
+      const docs = await collection
+        .find(filter)
         .sort({ timestamp: 1 })
         .toArray();
 
-      // If we do not have enough data points for this range,
-      // seed fake historic data once.
-      if (docs.length < days) {
-        await seedFakeData(collection, days);
-
-        docs = await collection
-          .find({ city: "Toronto", timestamp: { $gte: since } })
-          .sort({ timestamp: 1 })
-          .toArray();
-      }
-
+      // Build labels and series for the chart
       const labels = docs.map((doc) =>
         doc.timestamp.toISOString().split("T")[0]
       );
       const series = docs.map((doc) => doc.humidity);
 
-      const avg =
-        series.length > 0
-          ? Math.round(series.reduce((a, b) => a + b, 0) / series.length)
-          : 0;
-      const high = series.length > 0 ? Math.max(...series) : 0;
-      const low = series.length > 0 ? Math.min(...series) : 0;
+      const { avg, high, low } = computeStats(series);
 
       return res.status(200).json({ labels, series, avg, high, low });
     }
 
-    // 3) Insert new reading (used by ESP32 and optionally widget)
     if (method === "POST") {
+      // Body is expected to be JSON: { city, humidity, source }
       const body = req.body || {};
       const humidity = body.humidity;
-      const city = body.city || "Toronto";
-      const source = body.source || "unknown";
 
       if (typeof humidity !== "number") {
         return res
@@ -126,15 +84,27 @@ export default async function handler(req, res) {
           .json({ error: "humidity must be a number" });
       }
 
-      const doc = { city, humidity, source, timestamp: new Date() };
-      await collection.insertOne(doc);
+      const city = body.city || "Sensor";
+      const source = body.source || "unknown";
 
+      const doc = {
+        city,
+        humidity,
+        source,
+        timestamp: new Date(),
+      };
+
+      await collection.insertOne(doc);
       return res.status(201).json({ ok: true });
     }
 
-    // 4) Clear readings (dev only)
     if (method === "DELETE") {
-      await collection.deleteMany({ city: "Toronto" });
+      // Optional dev tool: clear readings for a specific city or all
+      const { city } = req.query;
+
+      const filter = city ? { city } : {};
+      await collection.deleteMany(filter);
+
       return res.status(200).json({ ok: true });
     }
 
