@@ -33,6 +33,7 @@ async function seedFakeData(collection, days) {
     docs.push({
       city: "Toronto",
       humidity,
+      source: "seed",
       timestamp: t
     });
   }
@@ -46,8 +47,33 @@ export default async function handler(req, res) {
   try {
     const { method, query } = req;
     const range = query.range || "week";
+    const mode = query.mode || null;
+
     const collection = await getCollection();
 
+    // 1) Latest reading for the widget UI
+    if (method === "GET" && mode === "latest") {
+      const latest = await collection
+        .find({})
+        .sort({ timestamp: -1 })
+        .limit(1)
+        .toArray();
+
+      if (!latest.length) {
+        return res.status(404).json({ error: "No readings found" });
+      }
+
+      const doc = latest[0];
+
+      return res.status(200).json({
+        humidity: doc.humidity,
+        city: doc.city,
+        source: doc.source || "unknown",
+        timestamp: doc.timestamp
+      });
+    }
+
+    // 2) History for the modal chart (week / month / quarter)
     if (method === "GET") {
       const ranges = { week: 7, month: 30, quarter: 90 };
       const days = ranges[range] || 7;
@@ -61,7 +87,7 @@ export default async function handler(req, res) {
         .sort({ timestamp: 1 })
         .toArray();
 
-      // If we don't have enough data points for this range,
+      // If we do not have enough data points for this range,
       // seed fake historic data once.
       if (docs.length < days) {
         await seedFakeData(collection, days);
@@ -87,10 +113,12 @@ export default async function handler(req, res) {
       return res.status(200).json({ labels, series, avg, high, low });
     }
 
+    // 3) Insert new reading (used by ESP32 and optionally widget)
     if (method === "POST") {
       const body = req.body || {};
       const humidity = body.humidity;
       const city = body.city || "Toronto";
+      const source = body.source || "unknown";
 
       if (typeof humidity !== "number") {
         return res
@@ -98,12 +126,13 @@ export default async function handler(req, res) {
           .json({ error: "humidity must be a number" });
       }
 
-      const doc = { city, humidity, timestamp: new Date() };
+      const doc = { city, humidity, source, timestamp: new Date() };
       await collection.insertOne(doc);
 
       return res.status(201).json({ ok: true });
     }
 
+    // 4) Clear readings (dev only)
     if (method === "DELETE") {
       await collection.deleteMany({ city: "Toronto" });
       return res.status(200).json({ ok: true });
