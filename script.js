@@ -23,7 +23,24 @@ let chart; // Chart.js instance
 let lastHumidity = null;
 let lastState = { label: "", color: "#22a352" };
 
-// State mapping based on humidity percentage
+// (Kept for reference, not used in P3 since ESP32 writes to DB)
+// Save a humidity reading to MongoDB via Vercel API
+async function saveHumidityToDb(humidity) {
+  try {
+    await fetch("/api/humidity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        city: "Sensor",
+        humidity,
+      }),
+    });
+  } catch (err) {
+    console.error("Failed to save humidity to DB", err);
+  }
+}
+
+// State mapping
 function getHumidityState(h) {
   if (h <= 40) {
     return {
@@ -61,21 +78,28 @@ function formatTime(date = new Date()) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// Fetch the latest humidity reading from the database
-// This is now populated by the ESP32 + DHT22 posting to /api/humidity
-async function fetchHumidityFromBackend() {
+/**
+ * Fetch current humidity from MongoDB / ESP32
+ * We ignore lat/lon now; data comes from city=Sensor readings.
+ */
+async function fetchHumidity(lat, lon) {
   try {
-    const res = await fetch("/api/humidity?mode=latest");
+    // Use week range by default, and always pull city=Sensor
+    const res = await fetch("/api/humidity?range=week&city=Sensor");
     if (!res.ok) {
-      throw new Error("No latest humidity reading available");
+      throw new Error("Failed to load humidity from DB");
     }
 
     const data = await res.json();
-    const humidity = data?.humidity;
+    const series = Array.isArray(data.series) ? data.series : [];
 
-    if (!Number.isFinite(humidity)) {
-      throw new Error("Invalid humidity value");
+    if (!series.length) {
+      throw new Error("No humidity data available");
     }
+
+    // Use the most recent reading and round to whole number
+    const rawHumidity = series[series.length - 1];
+    const humidity = Math.round(rawHumidity);
 
     // Update widget UI
     humidityEl.textContent = `${humidity}%`;
@@ -95,25 +119,41 @@ async function fetchHumidityFromBackend() {
 
     updateModalHeader();
   } catch (err) {
-    console.error("Failed to fetch latest humidity", err);
+    console.error("Failed to fetch humidity", err);
     humidityEl.textContent = "--%";
     statusEl.textContent = "Error";
     statusEl.style.color = "#c62828";
     humidityEl.style.color = "#c62828";
-    descEl.textContent =
-      "Unable to load humidity data. Make sure the sensor system is sending readings.";
+    descEl.textContent = "Unable to load humidity data. Please check your connection.";
   }
 }
 
-// History for chart – still backed by MongoDB via /api/humidity
-async function fetchHistory(rangeKey) {
+// History for chart – backed by MongoDB via Vercel API
+async function fetchHistory(lat, lon, rangeKey) {
   try {
-    const res = await fetch(`/api/humidity?range=${rangeKey}`);
+    const res = await fetch(`/api/humidity?range=${rangeKey}&city=Sensor`);
     if (!res.ok) {
       console.error("Failed to load history from DB");
       return { labels: [], series: [], avg: 0, high: 0, low: 0 };
     }
-    return await res.json();
+    const data = await res.json();
+
+    // Round all values to whole numbers for cleaner display
+    const roundedSeries = Array.isArray(data.series)
+      ? data.series.map((v) => Math.round(v))
+      : [];
+
+    const roundedAvg = Math.round(data.avg ?? 0);
+    const roundedHigh = Math.round(data.high ?? 0);
+    const roundedLow = Math.round(data.low ?? 0);
+
+    return {
+      labels: data.labels || [],
+      series: roundedSeries,
+      avg: roundedAvg,
+      high: roundedHigh,
+      low: roundedLow,
+    };
   } catch (err) {
     console.error("Error fetching history from DB", err);
     return { labels: [], series: [], avg: 0, high: 0, low: 0 };
@@ -163,7 +203,7 @@ function renderChart(labels, series) {
           padding: 8,
           displayColors: false,
           callbacks: {
-            label: (ctx) => `Humidity: ${ctx.parsed.y}%`,
+            label: (ctx) => `Humidity: ${Math.round(ctx.parsed.y)}%`,
           },
         },
       },
@@ -197,7 +237,9 @@ function renderChart(labels, series) {
 function updateModalHeader() {
   if (lastHumidity == null) return;
 
-  modalCurrentEl.textContent = `${lastHumidity}%`;
+  const rounded = Math.round(lastHumidity);
+
+  modalCurrentEl.textContent = `${rounded}%`;
   modalStateEl.textContent = lastState.label;
   modalStateEl.style.color = lastState.color;
   modalCurrentEl.style.color = lastState.color;
@@ -210,9 +252,10 @@ function updateModalHeader() {
 async function loadModalContent() {
   modalRefresh.classList.add("spinning");
 
+  const [lat, lon] = citySelect.value.split(",");
   const rangeKey = rangeSelect.value;
 
-  const { labels, series, avg, high, low } = await fetchHistory(rangeKey);
+  const { labels, series, avg, high, low } = await fetchHistory(lat, lon, rangeKey);
 
   renderChart(labels, series);
 
@@ -220,9 +263,9 @@ async function loadModalContent() {
   const statsHigh = document.getElementById("stat-high");
   const statsLow = document.getElementById("stat-low");
 
-  if (statsAvg) statsAvg.textContent = `${avg}%`;
-  if (statsHigh) statsHigh.textContent = `${high}%`;
-  if (statsLow) statsLow.textContent = `${low}%`;
+  if (statsAvg) statsAvg.textContent = `${Math.round(avg)}%`;
+  if (statsHigh) statsHigh.textContent = `${Math.round(high)}%`;
+  if (statsLow) statsLow.textContent = `${Math.round(low)}%`;
 
   updateModalHeader();
   modalRefresh.classList.remove("spinning");
@@ -251,9 +294,10 @@ modalOverlay.addEventListener("click", (e) => {
   }
 });
 
-// City select change – now just refreshes from latest reading
+// City select change – now just refreshes from sensor-backed DB
 citySelect.addEventListener("change", () => {
-  fetchHumidityFromBackend();
+  const [lat, lon] = citySelect.value.split(",");
+  fetchHumidity(lat, lon);
   if (modalOverlay.classList.contains("open")) {
     loadModalContent();
   }
@@ -261,11 +305,13 @@ citySelect.addEventListener("change", () => {
 
 // Initial load
 (function init() {
-  fetchHumidityFromBackend();
+  const [lat, lon] = citySelect.value.split(",");
+  fetchHumidity(lat, lon);
 
   // Refresh every 10 minutes
   setInterval(() => {
-    fetchHumidityFromBackend();
+    const [clat, clon] = citySelect.value.split(",");
+    fetchHumidity(clat, clon);
     if (modalOverlay.classList.contains("open")) {
       loadModalContent();
     }
