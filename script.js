@@ -1,6 +1,4 @@
-// ==== ELEMENTS ====
-
-// Main widget elements
+// ========= DOM ELEMENTS =========
 const humidityEl = document.querySelector(".humid-percentage");
 const statusEl = document.querySelector(".humid-status");
 const descEl = document.querySelector(".description");
@@ -10,7 +8,7 @@ const iconEls = [
   document.querySelector(".icon3"),
 ];
 
-// Modal elements
+// Modal
 const modalOverlay = document.getElementById("modal-overlay");
 const viewMoreBtn = document.getElementById("view-more");
 const modalClose = document.getElementById("modal-close");
@@ -24,23 +22,10 @@ let chart; // Chart.js instance
 let lastHumidity = null;
 let lastState = { label: "", color: "#22a352" };
 
-// (Kept for reference, not exposed in UI)
-async function saveHumidityToDb(humidity) {
-  try {
-    await fetch("/api/humidity", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        city: "Sensor",
-        humidity,
-      }),
-    });
-  } catch (err) {
-    console.error("Failed to save humidity to DB", err);
-  }
-}
+// We’ll always use this “city” key for ESP32 readings
+const SENSOR_CITY = "Sensor";
 
-// ==== STATE MAPPING ====
+// ========= HELPERS =========
 
 function getHumidityState(h) {
   if (h <= 40) {
@@ -78,88 +63,69 @@ function formatTime(date = new Date()) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// ==== DATA FETCHING ====
+// ========= API CALLS (ESP32 / MongoDB) =========
 
-// Current humidity from DB (ESP32 sensor)
-async function fetchHumidity() {
-  try {
-    const res = await fetch("/api/humidity?range=week&city=Sensor");
-    if (!res.ok) throw new Error("Failed to load humidity from DB");
-
-    const data = await res.json();
-    const series = Array.isArray(data.series) ? data.series : [];
-
-    if (!series.length) throw new Error("No humidity data available");
-
-    const rawHumidity = series[series.length - 1];
-    const humidity = Math.round(rawHumidity);
-
-    // Update main widget
-    humidityEl.textContent = `${humidity}%`;
-    const state = getHumidityState(humidity);
-    statusEl.textContent = state.label;
-    statusEl.style.color = state.color;
-    humidityEl.style.color = state.color;
-    descEl.textContent = state.desc;
-
-    iconEls.forEach((el, i) => {
-      el.src = state.icons[i];
-      el.alt = state.label;
-    });
-
-    lastHumidity = humidity;
-    lastState = state;
-    updateModalHeader();
-  } catch (err) {
-    console.error("Failed to fetch humidity", err);
-    humidityEl.textContent = "--%";
-    statusEl.textContent = "Error";
-    statusEl.style.color = "#c62828";
-    humidityEl.style.color = "#c62828";
-    descEl.textContent =
-      "Unable to load humidity data. Please check your connection.";
-  }
-}
-
-// History data for chart
+// Get recent history from your API (all from ESP32 sensor)
 async function fetchHistory(rangeKey) {
   try {
-    const res = await fetch(`/api/humidity?range=${rangeKey}&city=Sensor`);
+    const res = await fetch(`/api/humidity?city=${SENSOR_CITY}&range=${rangeKey}`);
     if (!res.ok) {
       console.error("Failed to load history from DB");
       return { labels: [], series: [], avg: 0, high: 0, low: 0 };
     }
-
-    const data = await res.json();
-
-    const roundedSeries = Array.isArray(data.series)
-      ? data.series.map((v) => Math.round(v))
-      : [];
-
-    const roundedAvg = Math.round(data.avg ?? 0);
-    const roundedHigh = Math.round(data.high ?? 0);
-    const roundedLow = Math.round(data.low ?? 0);
-
-    return {
-      labels: data.labels || [],
-      series: roundedSeries,
-      avg: roundedAvg,
-      high: roundedHigh,
-      low: roundedLow,
-    };
+    return await res.json();
   } catch (err) {
     console.error("Error fetching history from DB", err);
     return { labels: [], series: [], avg: 0, high: 0, low: 0 };
   }
 }
 
-// ==== CHART ====
+// Use the latest point from history as our "current" humidity reading
+async function fetchLatestHumidity() {
+  try {
+    const { series } = await fetchHistory("week");
+    if (!series || series.length === 0) {
+      throw new Error("No sensor data available");
+    }
+
+    // Take the last reading and round it
+    const humidity = Math.round(series[series.length - 1]);
+
+    // Update widget UI
+    humidityEl.textContent = `${humidity}%`;
+    const state = getHumidityState(humidity);
+    statusEl.textContent = state.label;
+    statusEl.style.color = state.color;
+    humidityEl.style.color = state.color;
+    descEl.textContent = state.desc;
+    iconEls.forEach((el, i) => {
+      el.src = state.icons[i];
+      el.alt = state.label;
+    });
+
+    // Save for modal
+    lastHumidity = humidity;
+    lastState = state;
+
+    updateModalHeader();
+  } catch (err) {
+    console.error("Failed to fetch latest humidity from sensor", err);
+    humidityEl.textContent = "--%";
+    statusEl.textContent = "Error";
+    statusEl.style.color = "#c62828";
+    humidityEl.style.color = "#c62828";
+    descEl.textContent =
+      "Unable to load humidity data from sensor. Please check the ESP32 connection.";
+  }
+}
+
+// ========= CHART + MODAL =========
 
 function renderChart(labels, series) {
   const canvas = document.getElementById("humidityChart");
   if (!canvas) return;
-
   const ctx = canvas.getContext("2d");
+
   const gradient = ctx.createLinearGradient(0, 0, 0, 200);
   gradient.addColorStop(0, "rgba(66, 163, 255, 0.25)");
   gradient.addColorStop(1, "rgba(66, 163, 255, 0.03)");
@@ -173,7 +139,7 @@ function renderChart(labels, series) {
       datasets: [
         {
           label: "Humidity (%)",
-          data: series,
+          data: series.map((v) => Math.round(v)), // round for the chart too
           borderColor: "rgba(66, 163, 255, 1)",
           backgroundColor: gradient,
           borderWidth: 2,
@@ -185,7 +151,9 @@ function renderChart(labels, series) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      layout: { padding: { left: 4, right: 6, top: 8, bottom: 4 } },
+      layout: {
+        padding: { left: 4, right: 6, top: 8, bottom: 4 },
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -201,32 +169,40 @@ function renderChart(labels, series) {
       },
       scales: {
         x: {
-          ticks: { maxTicksLimit: 6, color: "#9f9fa4" },
-          grid: { display: false },
+          ticks: {
+            maxTicksLimit: 6,
+            color: "#9f9fa4",
+          },
+          grid: {
+            display: false,
+          },
         },
         y: {
           beginAtZero: true,
           suggestedMax: 100,
-          ticks: { stepSize: 20, color: "#9f9fa4" },
-          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: {
+            stepSize: 20,
+            color: "#9f9fa4",
+          },
+          grid: {
+            color: "rgba(255,255,255,0.05)",
+          },
         },
       },
     },
   });
 }
 
-// ==== MODAL ====
-
 function updateModalHeader() {
   if (lastHumidity == null) return;
 
-  const rounded = Math.round(lastHumidity);
-  modalCurrentEl.textContent = `${rounded}%`;
+  modalCurrentEl.textContent = `${lastHumidity}%`;
   modalStateEl.textContent = lastState.label;
   modalStateEl.style.color = lastState.color;
   modalCurrentEl.style.color = lastState.color;
 
-  modalFooterUpdatedEl.textContent = `Last updated: ${formatTime()}`;
+  const nowStr = formatTime();
+  modalFooterUpdatedEl.textContent = `Last updated: ${nowStr}`;
 }
 
 async function loadModalContent() {
@@ -249,6 +225,8 @@ async function loadModalContent() {
   modalRefresh.classList.remove("spinning");
 }
 
+// ========= MODAL CONTROLS =========
+
 function openModal() {
   modalOverlay.classList.add("open");
   loadModalContent();
@@ -257,8 +235,6 @@ function openModal() {
 function closeModal() {
   modalOverlay.classList.remove("open");
 }
-
-// ==== EVENTS ====
 
 viewMoreBtn.addEventListener("click", openModal);
 modalClose.addEventListener("click", closeModal);
@@ -269,14 +245,15 @@ modalOverlay.addEventListener("click", (e) => {
   if (e.target === modalOverlay) closeModal();
 });
 
-// ==== INIT ====
+// ========= INIT =========
 
 (function init() {
-  fetchHumidity();
+  // First load from sensor
+  fetchLatestHumidity();
 
   // Refresh every 10 minutes
   setInterval(() => {
-    fetchHumidity();
+    fetchLatestHumidity();
     if (modalOverlay.classList.contains("open")) {
       loadModalContent();
     }
