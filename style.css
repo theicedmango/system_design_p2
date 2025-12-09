@@ -10,6 +10,7 @@ body {
   min-height: 100vh;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
 }
 
 /* Fixed-size "canvas" that matches your Figma / PNG frame */
