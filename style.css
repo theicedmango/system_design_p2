@@ -46,9 +46,9 @@ body {
    Tweak right/bottom if you want to nudge the position. */
 .box {
   position: absolute;
-  right: 7%;
-  bottom: 10%;
-  width: 669px;
+  right: 1.15%;
+  bottom: 14%;
+  width: 668px;
   height: 309px;
   display: flex;
 }
