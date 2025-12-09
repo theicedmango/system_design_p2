@@ -33,7 +33,7 @@ function getHumidityState(h) {
       label: "Good",
       color: "#22a352",
       desc: "Humidity is in an optimal range for most filaments. Printing conditions are stable and moisture absorption is minimal.",
-      icons: ["img/icon_full.svg", "img/icon_full.svg", "img/icon_empty.svg"],
+      icons: ["img/icon_half.svg", "img/icon_empty.svg", "img/icon_empty.svg"],
     };
   } else if (h <= 50) {
     return {
@@ -47,7 +47,7 @@ function getHumidityState(h) {
       label: "Fair",
       color: "#d4a017",
       desc: "Humidity is moderately elevated. Filament may slowly absorb moisture over time. Consider using sealed storage if filament is left out.",
-      icons: ["img/icon_full.svg", "img/icon_half.svg", "img/icon_empty.svg"],
+      icons: ["img/icon_full.svg", "img/icon_full.svg", "img/icon_half.svg"],
     };
   } else {
     return {
