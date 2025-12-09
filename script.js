@@ -23,23 +23,7 @@ let chart; // Chart.js instance
 let lastHumidity = null;
 let lastState = { label: "", color: "#22a352" };
 
-// Save a humidity reading to MongoDB via Vercel API
-async function saveHumidityToDb(humidity) {
-  try {
-    await fetch("/api/humidity", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        city: "Toronto",
-        humidity,
-      }),
-    });
-  } catch (err) {
-    console.error("Failed to save humidity to DB", err);
-  }
-}
-
-// State mapping
+// State mapping based on humidity percentage
 function getHumidityState(h) {
   if (h <= 40) {
     return {
@@ -77,13 +61,17 @@ function formatTime(date = new Date()) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-// Fetch current humidity from Open-Meteo
-async function fetchHumidity(lat, lon) {
+// Fetch the latest humidity reading from the database
+// This is now populated by the ESP32 + DHT22 posting to /api/humidity
+async function fetchHumidityFromBackend() {
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=relative_humidity_2m&timezone=auto`;
-    const res = await fetch(url);
+    const res = await fetch("/api/humidity?mode=latest");
+    if (!res.ok) {
+      throw new Error("No latest humidity reading available");
+    }
+
     const data = await res.json();
-    const humidity = data?.current?.relative_humidity_2m;
+    const humidity = data?.humidity;
 
     if (!Number.isFinite(humidity)) {
       throw new Error("Invalid humidity value");
@@ -105,24 +93,20 @@ async function fetchHumidity(lat, lon) {
     lastHumidity = humidity;
     lastState = state;
 
-    // Log Toronto readings into the DB (Toronto only)
-    if (citySelect.value.startsWith("43.6532")) {
-      saveHumidityToDb(humidity);
-    }
-
     updateModalHeader();
   } catch (err) {
-    console.error("Failed to fetch humidity", err);
+    console.error("Failed to fetch latest humidity", err);
     humidityEl.textContent = "--%";
     statusEl.textContent = "Error";
     statusEl.style.color = "#c62828";
     humidityEl.style.color = "#c62828";
-    descEl.textContent = "Unable to load humidity data. Please check your connection.";
+    descEl.textContent =
+      "Unable to load humidity data. Make sure the sensor system is sending readings.";
   }
 }
 
-// History for chart – now backed by MongoDB via Vercel API
-async function fetchHistory(lat, lon, rangeKey) {
+// History for chart – still backed by MongoDB via /api/humidity
+async function fetchHistory(rangeKey) {
   try {
     const res = await fetch(`/api/humidity?range=${rangeKey}`);
     if (!res.ok) {
@@ -226,10 +210,9 @@ function updateModalHeader() {
 async function loadModalContent() {
   modalRefresh.classList.add("spinning");
 
-  const [lat, lon] = citySelect.value.split(",");
   const rangeKey = rangeSelect.value;
 
-  const { labels, series, avg, high, low } = await fetchHistory(lat, lon, rangeKey);
+  const { labels, series, avg, high, low } = await fetchHistory(rangeKey);
 
   renderChart(labels, series);
 
@@ -268,10 +251,9 @@ modalOverlay.addEventListener("click", (e) => {
   }
 });
 
-// City select change – refresh main widget when switching city
+// City select change – now just refreshes from latest reading
 citySelect.addEventListener("change", () => {
-  const [lat, lon] = citySelect.value.split(",");
-  fetchHumidity(lat, lon);
+  fetchHumidityFromBackend();
   if (modalOverlay.classList.contains("open")) {
     loadModalContent();
   }
@@ -279,13 +261,11 @@ citySelect.addEventListener("change", () => {
 
 // Initial load
 (function init() {
-  const [lat, lon] = citySelect.value.split(",");
-  fetchHumidity(lat, lon);
+  fetchHumidityFromBackend();
 
   // Refresh every 10 minutes
   setInterval(() => {
-    const [clat, clon] = citySelect.value.split(",");
-    fetchHumidity(clat, clon);
+    fetchHumidityFromBackend();
     if (modalOverlay.classList.contains("open")) {
       loadModalContent();
     }
