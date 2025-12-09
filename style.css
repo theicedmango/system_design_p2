@@ -3,59 +3,53 @@
 html,
 body {
   margin: 0;
-  padding: 0;
-  height: 100%;
-  background-color: #37373c;
-  overflow: hidden;
+  background-color: #161618; /* same dark grey you already use */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Optional page title if you still use it somewhere */
-.header {
-  font-family: "Inter-Regular", Helvetica, sans-serif;
-  font-weight: bold;
-  font-size: 2rem;
-  color: #c3c2c1;
-  text-align: center;
-  padding: 2rem;
-}
-
-/* ---------- Bambu Studio mock shell ---------- */
-
+/* Fixed-size "canvas" that matches your Figma / PNG frame */
 .studio-shell {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  width: 1707px;   /* set these to your actual PNG size */
+  height: 961px;   /* e.g. 1440×810, 1920×1080, etc. */
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-/* Background screenshot of Bambu Studio UI */
+/* Background image fills that canvas but no longer stretches with viewport */
 .studio-bg {
-  width: auto;
+  width: 100%;
   height: 100%;
-  max-width: 100%;
-  object-fit: cover;
   display: block;
+  object-fit: cover;
 }
 
-/* ---------- Widget container (overlays shell) ---------- */
-
-/* This places the widget in the bottom-right area of the fake UI.
-   Tweak right/bottom if you want to nudge the position. */
-.box {
+/* Anchor the widget to bottom-right inside the Bambu UI */
+.humidity-widget-host {
   position: absolute;
-  right: 1.15%;
-  bottom: 14%;
-  width: 668px;
-  height: 309px;
-  display: flex;
+  /* tweak these two until it sits exactly in the lower-right panel */
+  right: 13px;
+  bottom: 135px;
+  transform: scale(0.889);          /* <— shrink here */
+  transform-origin: bottom right;
+}
+
+/* Keep your original widget dimensions so all the internal
+   absolute positioning still lines up perfectly */
+.box {
+  position: relative;
+  width: 675px;  /* your original widget width */
+  height: 309px; /* your original widget height */
 }
 
 .widget {
-  width: 675px;
-  height: 309px;
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .widget-background {
